@@ -1,8 +1,16 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import {
+  HydrationBoundary,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
+import ReactQueryProvider from "./utils/provider/reactQueryProvider";
 
 const inter = Inter({ subsets: ["latin"] });
+
+export const queryClient = new QueryClient();
 
 export const metadata: Metadata = {
   title: "Create Next App",
@@ -16,7 +24,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>{children}</body>
+      <ReactQueryProvider>
+        <body className={inter.className} suppressHydrationWarning={true}>
+          {children}
+        </body>
+      </ReactQueryProvider>
     </html>
   );
 }
