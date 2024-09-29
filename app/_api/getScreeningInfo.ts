@@ -1,7 +1,9 @@
 import axios from "axios";
 
+export type StatusType = "DONE" | "DNR" | "SCREENED" | "ERROR" | "OBSERVING";
+
 export interface Screening {
-  status: string;
+  status: StatusType;
   emr_id: number;
   name: string;
   sex: "F" | "M";
@@ -37,9 +39,8 @@ export const getScreeningInfo = async ({
   filters: string[];
 }) => {
   try {
-    const filterParams = filters.map((status) => `status=${status}`).join("&");
     const response = await axios(
-      `http://localhost:3001/screening?_page=${pages}&_limit=${limit}&${filterParams}&_sort=${sortField}&_order=${sortOrder}`
+      `http://localhost:3001/screening?_page=${pages}&_limit=${limit}&_sort=${sortField}&_order=${sortOrder}`
     );
 
     return response.data;

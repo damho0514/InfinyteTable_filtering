@@ -9,84 +9,141 @@ import React, {
 } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
-  Column,
   ColumnDef,
   SortingState,
-  flexRender,
   getCoreRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { debounce, filter } from "lodash";
-import { Screening, getScreeningInfo } from "@/app/_api/getScreeningInfo";
-import TableHeader from "./TableHeader";
-import TableBody from "./TableBody";
-import LoadMoreObserver from "./LoadMoreObserver";
+import { debounce } from "lodash";
+import {
+  Screening,
+  StatusType,
+  getScreeningInfo,
+} from "@/app/_api/getScreeningInfo";
 import { handleCopy } from "@/app/utils/clipboardUtils";
 import { formatDateTime } from "@/app/utils/formatDateTime";
 import CopyIcon from "@/src/assets/icon/CopyIcon";
-import NoneArrowIcon from "@/src/assets/icon/NoneArrowIcon";
-import DownIcon from "@/src/assets/icon/DownIcon";
-import UpIcon from "@/src/assets/icon/UpIcon";
+import { translateStatus } from "@/app/utils/translateStatus";
+import StatusTag from "../StatusTag/StatusTag";
+import ScreeningTableHeader from "./ScreeningTableHeader";
+import ScreeningTableRow from "./ScreeningTableRow";
 
 const defaultSorting: SortingState = [{ id: "alert.date", desc: true }];
-const statusOptions = ["DONE", "DNR", "SCREENED", "ERROR", "OBSERVING"];
-const indexingArray = [2, 5, 6, 7, 8, 9, 10];
+const statusOptions = ["SCREENED", "OBSERVING", "ERROR", "DONE", "DNR"];
 
 export default function DataTable() {
   const loadMoreRef = useRef<null>(null);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc" | null>("desc");
-  const [sortField, setSortField] = useState<string | null>("alert.date");
+  const [sortField, setSortField] = useState("alert.date");
   const [filters, setFilters] = useState<string[]>([]);
+  const [filteredData, setFilteredData] = useState<Screening[]>([]);
 
   const {
     data,
+    refetch,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
     status,
     error,
-  } = useInfiniteQuery<Screening[]>({
+  } = useInfiniteQuery({
     queryKey: ["screening", filters, sortField, sortOrder],
     queryFn: ({ pageParam = 1, queryKey }) => {
       return getScreeningInfo({
         pages: Number(pageParam),
-        limit: 40,
+        limit: 10,
         sortField,
         sortOrder,
         filters,
       });
     },
-    initialPageParam: 1,
-    getNextPageParam: (lastPage, pages) => {
-      return lastPage.length === 40 ? pages.length + 1 : undefined;
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages, lastPageParam) => {
+      if (lastPage.length === 0) {
+        return undefined;
+      }
+      return lastPageParam + 1;
+    },
+    getPreviousPageParam: (firstPage, allPages, firstPageParam) => {
+      if (firstPageParam <= 1) {
+        return undefined;
+      }
+      return firstPageParam - 1;
     },
   });
 
   const isFetchingRef = useRef(isFetchingNextPage);
 
-  const handleScroll = useCallback(
-    debounce(() => {
-      if (loadMoreRef.current) {
-        const { scrollTop, scrollHeight, clientHeight } = loadMoreRef.current;
-        const isBottom = scrollTop + clientHeight >= scrollHeight - 10;
+  const handleCheckboxChange = useCallback(
+    (status: string) => {
+      setFilters((prev) => {
+        const newFilters = prev.includes(status)
+          ? prev.filter((s) => s !== status)
+          : [...prev, status];
 
-        if (isBottom && hasNextPage && !isFetchingNextPage) {
-          fetchNextPage();
+        if (data) {
+          const allData = data.pages.flat();
+          if (newFilters.length === 0) {
+            setFilteredData(allData);
+          } else {
+            const filtered = allData.filter((item) =>
+              newFilters.includes(item.status)
+            );
+            setFilteredData(filtered);
+          }
         }
-      }
-    }, 1000),
-    [hasNextPage, fetchNextPage, isFetchingNextPage]
+
+        return newFilters;
+      });
+    },
+    [data]
   );
+
+  useEffect(() => {
+    if (data) {
+      const allData = data.pages.flatMap((res) => res);
+
+      if (filters.length === 0) {
+        setFilteredData(allData);
+      } else {
+        const filtered = allData.filter((item) =>
+          filters.includes(item.status)
+        );
+        setFilteredData(filtered);
+      }
+    }
+  }, [data, filters]);
 
   const handleSort = (
     updaterOrValue: SortingState | ((old: SortingState) => SortingState)
   ) => {
-    if (typeof updaterOrValue === "function") {
-      const newSorting = updaterOrValue(defaultSorting); // 기본 정렬을 전달
-      handleSortingLogic(newSorting);
+    const newSorting =
+      typeof updaterOrValue === "function"
+        ? updaterOrValue(defaultSorting)
+        : updaterOrValue;
+
+    handleSortingLogic(newSorting);
+  };
+
+  const handleSortingLogic = (sorting: SortingState) => {
+    if (sorting.length > 0) {
+      const { id, desc } = sorting[0];
+
+      if (sortField === id) {
+        if (sortOrder === (desc ? "desc" : "asc")) {
+          setSortField("alert.date");
+          setSortOrder("desc");
+        } else {
+          setSortOrder(desc ? "desc" : "asc");
+        }
+      } else {
+        setSortField(id);
+        setSortOrder(desc ? "desc" : "asc");
+      }
     } else {
-      handleSortingLogic(updaterOrValue);
+      setSortField("");
+      setSortOrder(null);
     }
   };
 
@@ -95,34 +152,6 @@ export default function DataTable() {
     setSortOrder("desc");
   }, []);
 
-  // 정렬 로직을 처리하는 함수
-  const handleSortingLogic = (sorting: SortingState) => {
-    if (sorting.length > 0) {
-      const { id, desc } = sorting[0]; // 첫 번째 정렬 기준만 사용
-
-      // 정렬 해제 로직
-      if (sortField === id) {
-        if (sortOrder === (desc ? "desc" : "asc")) {
-          // 현재 정렬 기준과 동일하고, 같은 방향인 경우
-          // 기본 정렬로 되돌리기 (alert.date 내림차순)
-          setSortField("alert.date");
-          setSortOrder("desc");
-        } else {
-          // 방향만 바꾸는 경우
-          setSortOrder(desc ? "desc" : "asc");
-        }
-      } else {
-        // 새로운 정렬 기준으로 설정
-        setSortField(id);
-        setSortOrder(desc ? "desc" : "asc");
-      }
-    } else {
-      // 정렬 기준이 없을 경우
-      setSortField("alert.date"); // 기본 정렬 필드
-      setSortOrder("desc"); // 기본 정렬 방향
-    }
-  };
-
   const columns: ColumnDef<Screening>[] = useMemo(
     () => [
       {
@@ -130,13 +159,18 @@ export default function DataTable() {
         accessorKey: "status",
         header: "Status",
         size: 20,
+        cell: ({ row }) => {
+          const status = row.original.status;
+          return (
+            <StatusTag status={status}>{translateStatus(status)}</StatusTag>
+          );
+        },
       },
       {
         size: 100,
-        id: "patientInfo",
-        accessorKey: "patientInfo",
+        id: "emr_id",
+        accessorKey: "emr_id",
         header: "Patient info",
-        enableSorting: true,
         cell: ({ row }) => {
           const name = row.original.name;
           const sex = row.original.sex;
@@ -161,8 +195,8 @@ export default function DataTable() {
         },
       },
       {
-        id: "3",
-        accessorKey: "3",
+        id: "location",
+        accessorKey: "location",
         header: "",
         size: 200,
         cell: ({ row }) => {
@@ -179,8 +213,8 @@ export default function DataTable() {
         },
       },
       {
-        id: "4",
-        accessorKey: "4",
+        id: "department",
+        accessorKey: "department",
         header: "",
         size: 100,
         cell: ({ row }) => {
@@ -195,9 +229,9 @@ export default function DataTable() {
         },
       },
       {
-        id: "Screened Type",
-        accessorKey: "ScreenedType",
-        header: "ScreenedType",
+        id: "screenedType",
+        accessorKey: "screenedType",
+        header: "screenedType",
         size: 100,
         cell: ({ row }) => {
           const alertType = row.original.alert.type;
@@ -218,21 +252,30 @@ export default function DataTable() {
       {
         id: "SBP",
         header: "SBP",
-        accessorKey: "SBP",
+        accessorKey: "screening_data",
         size: 0,
+        enableSorting: true,
         cell: ({ row }) => {
           const screeningData = row.original.screening_data;
-          const sbpValue =
-            screeningData
-              .find((item) => item.type === "SBP")
-              ?.value.toFixed(1) || "N/A";
+          const sbpValue = screeningData
+            .find((item) => item.type === "SBP")
+            ?.value.toFixed(1);
           return <p>{sbpValue}</p>;
+        },
+        sortingFn: (rowA, rowB) => {
+          const valueA =
+            rowA.original.screening_data.find((item) => item.type === "SBP")
+              ?.value || 0;
+          const valueB =
+            rowB.original.screening_data.find((item) => item.type === "SBP")
+              ?.value || 0;
+          return valueA - valueB;
         },
       },
       {
         id: "DBP",
         header: "DBP",
-        accessorKey: "DBP",
+        accessorKey: "screening_data",
         size: 0,
         cell: ({ row }) => {
           const screeningData = row.original.screening_data;
@@ -242,11 +285,21 @@ export default function DataTable() {
               ?.value.toFixed(1) || "N/A";
           return <p>{dbpValue}</p>;
         },
+        sortingFn: (rowA, rowB) => {
+          const valueA =
+            rowA.original.screening_data.find((item) => item.type === "DBP")
+              ?.value || 0;
+          const valueB =
+            rowB.original.screening_data.find((item) => item.type === "DBP")
+              ?.value || 0;
+          return valueA - valueB;
+        },
+        enableSorting: true,
       },
       {
         id: "PR",
         header: "PR",
-        accessorKey: "PR",
+        accessorKey: "screening_data",
         size: 0,
         cell: ({ row }) => {
           const screeningData = row.original.screening_data;
@@ -256,11 +309,21 @@ export default function DataTable() {
               ?.value.toFixed(1) || "N/A";
           return <p>{prValue}</p>;
         },
+        sortingFn: (rowA, rowB) => {
+          const valueA =
+            rowA.original.screening_data.find((item) => item.type === "PR")
+              ?.value || 0;
+          const valueB =
+            rowB.original.screening_data.find((item) => item.type === "PR")
+              ?.value || 0;
+          return valueA - valueB;
+        },
+        enableSorting: true,
       },
       {
         id: "RR",
         header: "RR",
-        accessorKey: "RR",
+        accessorKey: "screening_data",
         size: 0,
         cell: ({ row }) => {
           const screeningData = row.original.screening_data;
@@ -270,11 +333,21 @@ export default function DataTable() {
               ?.value.toFixed(1) || "N/A";
           return <p>{rrValue}</p>;
         },
+        sortingFn: (rowA, rowB) => {
+          const valueA =
+            rowA.original.screening_data.find((item) => item.type === "RR")
+              ?.value || 0;
+          const valueB =
+            rowB.original.screening_data.find((item) => item.type === "RR")
+              ?.value || 0;
+          return valueA - valueB;
+        },
+        enableSorting: true,
       },
       {
         id: "BT",
         header: "BT",
-        accessorKey: "BT",
+        accessorKey: "screening_data",
         size: 0,
         cell: ({ row }) => {
           const screeningData = row.original.screening_data;
@@ -284,24 +357,33 @@ export default function DataTable() {
               ?.value.toFixed(1) || "N/A";
           return <p>{btValue}</p>;
         },
+        sortingFn: (rowA, rowB) => {
+          const valueA =
+            rowA.original.screening_data.find((item) => item.type === "BT")
+              ?.value || 0;
+          const valueB =
+            rowB.original.screening_data.find((item) => item.type === "BT")
+              ?.value || 0;
+          return valueA - valueB;
+        },
+        enableSorting: true,
       },
     ],
     []
   );
 
-  const handleCheckboxChange = useCallback(
-    (status: string) => {
-      setFilters((prev) => {
-        console.log(filters);
-        // 이전 상태와 비교하여 중복된 상태 변경 방지
-        if (prev.includes(status)) {
-          return prev.filter((s) => s !== status);
-        } else {
-          return [...prev, status];
+  const handleScroll = useCallback(
+    debounce(() => {
+      if (loadMoreRef.current) {
+        const { scrollTop, scrollHeight, clientHeight } = loadMoreRef.current;
+        const isBottom = scrollTop + clientHeight >= scrollHeight - 10;
+
+        if (isBottom && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
         }
-      });
-    },
-    [filters]
+      }
+    }, 1000),
+    [hasNextPage, fetchNextPage, isFetchingNextPage]
   );
 
   useEffect(() => {
@@ -328,7 +410,7 @@ export default function DataTable() {
   }, [fetchNextPage, hasNextPage]);
 
   const table = useReactTable<Screening>({
-    data: data?.pages.flatMap((res) => res) || [],
+    data: filteredData,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -351,74 +433,21 @@ export default function DataTable() {
           <div key={status}>
             <input
               type="checkbox"
-              checked={filters.includes(status)} // Manage checkbox state
-              onChange={(e) => handleCheckboxChange(status)} // Implement your checkbox handling logic
+              checked={filters.includes(status)}
+              onChange={(e) => handleCheckboxChange(status)}
             />
-            {status}
+            {translateStatus(status as StatusType)}
           </div>
         ))}
       </div>
       <div className="border-x border-t border-b">
-        <table className="w-full table-fixed">
-          <thead className="bg-headerColor h-[62px] text-xl font-bold text-gray70">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header, index) => (
-                  <th
-                    key={header.id}
-                    className="px-6 py-3"
-                    style={{ width: header.column.getSize() }}
-                    onClick={header.column.getToggleSortingHandler()}
-                  >
-                    <div className="flex gap-5 items-center">
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
-                      {indexingArray.includes(index) &&
-                      header.column.getCanSort() &&
-                      !header.column.getIsSorted() ? (
-                        <NoneArrowIcon />
-                      ) : null}
-                      {indexingArray.includes(index) &&
-                        {
-                          asc: <UpIcon />,
-                          desc: <DownIcon />,
-                        }[header.column.getIsSorted() as string]}
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-        </table>
+        <ScreeningTableHeader table={table} />
         <div
           className="overflow-y-auto max-h-[800px]"
           onScroll={handleScroll}
           ref={loadMoreRef}
         >
-          <table className="w-full table-fixed">
-            <tbody className="bg-white divide-y divide-gray-200">
-              {rowModel.rows.map((row) => (
-                <tr key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <td
-                      className="px-6 py-4 whitespace-nowrap"
-                      style={{ width: cell.column.getSize() }} // Match cell width with header
-                      key={cell.id}
-                    >
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ScreeningTableRow rowModel={rowModel} />
         </div>
       </div>
       <div className="text-error_text font-bold text-xl">

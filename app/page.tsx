@@ -1,4 +1,4 @@
-import DataTable from "./components/DataTable/DataTable";
+import DataTable from "./components/ScreeningTable/DataTable";
 
 export default function Home() {
   return (

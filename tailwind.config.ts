@@ -8,6 +8,9 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      maskType: {
+        alpha: "alpha",
+      },
       backgroundImage: {
         "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",
         "gradient-conic":
@@ -18,10 +21,14 @@ const config: Config = {
       white: "#FFFF",
       grey100: "#505462",
       grey200: "#1B1C1F",
+      grey300: "#d1d5db",
       grey12: "#111214",
+      headerColor: "#e5e7eb",
       black: "#000000",
 
       blue1: "#E5FAFF",
+
+      // tag 색상
 
       screened_bg: "#dfe9ff",
       screened_text: "#0077f0",
